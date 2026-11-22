@@ -1,0 +1,6 @@
+{
+  "name": "TERRAVOX — Multiplayer Voxel Survival",
+  "description": "Fast-paced persistent multiplayer voxel survival game with mining, crafting, base building, and tactical FPS combat in a shared 1500x600 world.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
