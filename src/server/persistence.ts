@@ -811,10 +811,9 @@ export class PersistenceManager {
   // ---- Per-Client Private Secret Binding (Protects MOD identity from spoofing) ----
   public bindOrVerifyPlayerSecret(playerId: string, rawSecret?: string): boolean {
     if (!playerId) return false;
+    const prof = this.players.get(playerId);
     const storedHash = this.playerSecrets[playerId];
     if (!rawSecret || typeof rawSecret !== 'string' || rawSecret.length < 12) {
-      // Allow legacy clients without secret ONLY if no secret has been bound yet AND not a MOD
-      const prof = this.players.get(playerId);
       return !storedHash && !prof?.isMod;
     }
     const incomingHash = crypto.createHash('sha256').update(rawSecret).digest('hex');
@@ -825,7 +824,15 @@ export class PersistenceManager {
     }
     const a = Buffer.from(incomingHash, 'hex');
     const b = Buffer.from(storedHash, 'hex');
-    return a.length === b.length && crypto.timingSafeEqual(a, b);
+    const matched = a.length === b.length && crypto.timingSafeEqual(a, b);
+    if (matched) return true;
+    // Strictly block mismatched secrets for MODs; allow non-MOD players to rebind cleanly across portable hosts
+    if (!prof?.isMod) {
+      this.playerSecrets[playerId] = incomingHash;
+      this.dirtySecrets = true;
+      return true;
+    }
+    return false;
   }
 
   public findProfileByIdOrUsername(targetId?: string, targetUsername?: string): PlayerProfileState | undefined {

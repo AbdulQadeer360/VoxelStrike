@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Home, Play, RotateCcw, Settings, ShieldAlert, Skull } from 'lucide-react';
+import { Award, Home, Play, RotateCcw, Settings, ShieldAlert, Skull, Swords } from 'lucide-react';
 import { buildGameTips, GameHUD } from './components/GameHUD.tsx';
 import { HomeMenu, type HomeTab } from './components/HomeMenu.tsx';
 import {
@@ -23,6 +23,7 @@ import {
   DEFAULT_KEYBINDINGS,
   getQuickConvertTargets,
   MAX_PLAYERS,
+  type GameModeId,
   type KeyActionId,
   type KeybindingsConfig,
   type SpawnZone,
@@ -31,9 +32,11 @@ import type {
   ChatMessage,
   ClientWsMessage,
   KillFeedEvent,
+  ModeMatchState,
   PlayerProfileState,
   PlayerPublicState,
   ServerWsMessage,
+  TeamSide,
 } from './shared/protocol.ts';
 
 function getOrCreatePlayerId(): string {
@@ -61,6 +64,42 @@ function getOrCreatePlayerSecret(): string {
     return sec;
   } catch {
     return `sec_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+  }
+}
+
+function regeneratePlayerCredentials(): { playerId: string; playerSecret: string } {
+  const playerId = `tv_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+  let playerSecret = `sec_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+  try {
+    const bytes = new Uint8Array(24);
+    crypto.getRandomValues(bytes);
+    playerSecret = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    localStorage.setItem('terravox_player_id', playerId);
+    localStorage.setItem('terravox_player_secret', playerSecret);
+  } catch {
+    // ignore storage errors
+  }
+  return { playerId, playerSecret };
+}
+
+function getSavedUsername(): string {
+  try {
+    const saved = localStorage.getItem('voxelstrike_saved_username');
+    if (saved && saved.trim().length >= 2 && saved.trim() !== 'Explorer') {
+      return saved.trim();
+    }
+    return '';
+  } catch {
+    return '';
+  }
+}
+
+function saveLocalUsername(name: string): void {
+  try {
+    localStorage.setItem('voxelstrike_saved_username', name);
+    localStorage.setItem('terravox_username_set', '1');
+  } catch {
+    // ignore storage errors
   }
 }
 
@@ -118,20 +157,15 @@ export default function App() {
   const screenRef = useRef<'menu' | 'playing'>('menu');
   screenRef.current = screen;
 
-  const [profile, setProfile] = useState<PlayerProfileState>({
+  const [profile, setProfile] = useState<PlayerProfileState>(() => ({
     ...DEFAULT_PROFILE,
     playerId: playerIdRef.current,
-  });
+    username: getSavedUsername() || 'Explorer',
+  }));
   const profileRef = useRef(profile);
   profileRef.current = profile;
 
-  const [needsUsername, setNeedsUsername] = useState<boolean>(() => {
-    try {
-      return !localStorage.getItem('terravox_username_set');
-    } catch {
-      return true;
-    }
-  });
+  const [needsUsername, setNeedsUsername] = useState<boolean>(() => !getSavedUsername());
   const [rulesAccepted, setRulesAccepted] = useState<boolean>(() => {
     try {
       return localStorage.getItem('voxelstrike_rules_accepted_v1') === '1';
@@ -141,9 +175,11 @@ export default function App() {
   });
   const rulesAcceptedRef = useRef(rulesAccepted);
   rulesAcceptedRef.current = rulesAccepted;
-  const pendingPlayAfterRulesRef = useRef(false);
+  const pendingPlayAfterRulesRef = useRef<{ mode: GameModeId; opponentClanId?: string } | null>(null);
 
   const [selectedZone, setSelectedZone] = useState<SpawnZone['id']>('frontier');
+  const [activeMode, setActiveMode] = useState<GameModeId>('survival');
+  const [duelWaiting, setDuelWaiting] = useState(0);
   const [onlineCount, setOnlineCount] = useState(0);
   const [maxPlayers, setMaxPlayers] = useState(MAX_PLAYERS);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -151,6 +187,7 @@ export default function App() {
 
   // Modals
   const [homeModal, setHomeModal] = useState<HomeTab | null>(null);
+  const [clanInitialTab, setClanInitialTab] = useState<'create' | 'manage' | 'war'>('create');
   const [gameModal, setGameModal] = useState<
     'map' | 'craft' | 'scoreboard' | 'leaderboard' | 'pause' | 'settings' | null
   >(null);
@@ -175,6 +212,9 @@ export default function App() {
 
   const [coords, setCoords] = useState({ x: 0, y: 24, z: 0 });
   const [yaw, setYaw] = useState(0);
+  const [fps, setFps] = useState(60);
+  const [pingMs, setPingMs] = useState(0);
+  const [statsOverlayOpen, setStatsOverlayOpen] = useState(false);
   const [crouching, setCrouching] = useState(false);
   const [scoped, setScoped] = useState(false);
   const [targetBlockName, setTargetBlockName] = useState<string | null>(null);
@@ -184,8 +224,17 @@ export default function App() {
   const [hitmarkerAt, setHitmarkerAt] = useState(0);
   const [damageFlashAt, setDamageFlashAt] = useState(0);
   const [remotePlayers, setRemotePlayers] = useState<PlayerPublicState[]>([]);
+  const [selfCarryingFlag, setSelfCarryingFlag] = useState<TeamSide | undefined>(undefined);
+  const [modeState, setModeState] = useState<ModeMatchState | null>(null);
+  const [modeBanner, setModeBanner] = useState<{
+    text: string;
+    tone: 'red' | 'blue' | 'gold' | 'green';
+  } | null>(null);
+  const modeBannerTimerRef = useRef<number | null>(null);
+
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatOpen, setChatOpen] = useState(false);
+  const [chatHidden, setChatHidden] = useState(false);
   const chatOpenRef = useRef(false);
   chatOpenRef.current = chatOpen;
   const [killFeed, setKillFeed] = useState<KillFeedEvent[]>([]);
@@ -205,7 +254,8 @@ export default function App() {
 
   const [touchEnabled, setTouchEnabled] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
-    return 'ontouchstart' in window && window.innerWidth >= 600 && navigator.maxTouchPoints > 0;
+    const coarse = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+    return coarse || ('ontouchstart' in window && navigator.maxTouchPoints > 0);
   });
 
   const sendWs = useCallback((msg: ClientWsMessage) => {
@@ -222,31 +272,63 @@ export default function App() {
     }, 3200);
   }, []);
 
-  // Load initial profile & server info
+  // Load initial profile & server info (auto-recovers credentials on external hosting)
   useEffect(() => {
-    const pid = playerIdRef.current;
-    fetch(`/api/profile/${encodeURIComponent(pid)}`, {
-      headers: { 'x-player-secret': playerSecretRef.current },
-    })
-      .then((r) => r.json())
-      .then((d) => {
+    const savedName = getSavedUsername();
+
+    const loadProfile = async (retried = false) => {
+      try {
+        const pid = playerIdRef.current;
+        const url = `/api/profile/${encodeURIComponent(pid)}${
+          savedName ? `?username=${encodeURIComponent(savedName)}` : ''
+        }`;
+        const r = await fetch(url, {
+          headers: { 'x-player-secret': playerSecretRef.current },
+        });
+        if (r.status === 403 && !retried) {
+          const creds = regeneratePlayerCredentials();
+          playerIdRef.current = creds.playerId;
+          playerSecretRef.current = creds.playerSecret;
+          await loadProfile(true);
+          return;
+        }
+        const d = await r.json();
         if (d.profile) {
           setProfile(d.profile);
           engineRef.current?.setSkin(d.profile.skinId);
           engineRef.current?.setGunSkin(d.profile.gunSkinId || 'carbon');
+
           if (d.profile.username && d.profile.username !== 'Explorer') {
-            try {
-              localStorage.setItem('terravox_username_set', '1');
-              setNeedsUsername(false);
-            } catch {
-              // ignore storage errors
-            }
+            saveLocalUsername(d.profile.username);
+            setNeedsUsername(false);
+          } else if (savedName) {
+            // Sync saved localStorage username onto server cleanly
+            setNeedsUsername(false);
+            fetch('/api/profile/username', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                playerId: playerIdRef.current,
+                playerSecret: playerSecretRef.current,
+                username: savedName,
+              }),
+            })
+              .then((res) => (res.ok ? res.json() : null))
+              .then((upd) => {
+                if (upd?.profile) setProfile(upd.profile);
+              })
+              .catch(() => {});
           } else {
             setNeedsUsername(true);
           }
         }
-      })
-      .catch(() => {});
+      } catch {
+        // Keep cached savedName if offline temporarily
+        if (savedName) setNeedsUsername(false);
+      }
+    };
+
+    loadProfile();
 
     const refreshInfo = () => {
       fetch('/api/server/info')
@@ -254,13 +336,23 @@ export default function App() {
         .then((d) => {
           if (typeof d.onlineCount === 'number') setOnlineCount(d.onlineCount);
           if (typeof d.maxPlayers === 'number') setMaxPlayers(d.maxPlayers);
+          if (typeof d.duelWaiting === 'number') setDuelWaiting(d.duelWaiting);
         })
         .catch(() => {});
     };
     refreshInfo();
-    const timer = setInterval(refreshInfo, 6000);
+    const timer = setInterval(refreshInfo, 4000);
     return () => clearInterval(timer);
   }, []);
+
+  // Periodic WS latency ping measurement
+  useEffect(() => {
+    if (screen !== 'playing') return;
+    const pingTimer = window.setInterval(() => {
+      sendWs({ type: 'net:ping', t: Date.now() });
+    }, 2000);
+    return () => window.clearInterval(pingTimer);
+  }, [screen, sendWs]);
 
   // Mount Three.js VoxelEngine once in isolated container
   useEffect(() => {
@@ -301,6 +393,7 @@ export default function App() {
       onHudTick: (hud) => {
         setCoords({ x: hud.x, y: hud.y, z: hud.z });
         setYaw(hud.yaw);
+        setFps(hud.fps);
         setCrouching(hud.crouching);
         setScoped(hud.scoped);
         setTargetBlockName(hud.targetBlockName);
@@ -372,6 +465,13 @@ export default function App() {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
+      // Press '0' to toggle Coordinates / Ping (ms) / FPS stats overlay
+      if (e.code === 'Digit0') {
+        e.preventDefault();
+        setStatsOverlayOpen((prev) => !prev);
+        return;
+      }
+
       if (e.code >= 'Digit1' && e.code <= 'Digit9') {
         const idx = Number(e.code.replace('Digit', '')) - 1;
         if (quickConvertOpenRef.current && (idx === 0 || idx === 1)) {
@@ -421,9 +521,7 @@ export default function App() {
           audioEngine.playUiClick();
           setQuickConvertOpen((v) => !v);
         } else {
-          showToast(
-            'Hold any block in hand (Wood, Stone, Sand, Dirt...) and press K to convert to Wall or Stairs!'
-          );
+          showToast('Hold any block in hand (Wood, Stone, Sand, Dirt...) to convert to Wall or Stairs!');
         }
         return;
       }
@@ -472,6 +570,7 @@ export default function App() {
           e.preventDefault();
           setQuickConvertOpen(false);
           engineRef.current?.exitPointerLock();
+          setChatHidden(false);
           setChatOpen(true);
         }
         return;
@@ -509,7 +608,7 @@ export default function App() {
     };
   }, [sendWs, homeModal, touchEnabled, showToast]);
 
-  // Periodic green game tips in multiplayer chat feed
+  // Periodic green game tips in multiplayer chat feed ONLY
   useEffect(() => {
     if (screen !== 'playing') return;
     let tipIdx = 0;
@@ -535,18 +634,19 @@ export default function App() {
     };
   }, [screen]);
 
-  // Connect WebSocket & Enter Single Shared World
-  const handlePlay = useCallback(
-    (zoneId: SpawnZone['id'] = 'frontier') => {
-      if (!rulesAcceptedRef.current) {
-        pendingPlayAfterRulesRef.current = true;
-        return;
-      }
+  // Connect WebSocket & Enter Selected Mode ('survival' | 'duel' | 'ctf' | 'clanwar')
+  const connectToMode = useCallback(
+    (mode: GameModeId, zoneId: SpawnZone['id'] = 'frontier', opponentClanId?: string) => {
       audioEngine.playUiClick();
       setConnectionError(null);
+      setActiveMode(mode);
       setSelectedZone(zoneId);
       setHomeModal(null);
       setGameModal(null);
+      setChatHidden(false);
+      setModeState(null);
+      setModeBanner(null);
+      setSelfCarryingFlag(undefined);
 
       if (wsRef.current) {
         wsRef.current.close();
@@ -563,10 +663,12 @@ export default function App() {
             type: 'auth:join',
             playerId: playerIdRef.current,
             playerSecret: playerSecretRef.current,
-            username: profileRef.current.username,
+            username: getSavedUsername() || profileRef.current.username,
             zoneId,
             skinId: profileRef.current.skinId,
             gunSkinId: profileRef.current.gunSkinId,
+            mode,
+            opponentClanId,
           } satisfies ClientWsMessage)
         );
       };
@@ -581,6 +683,7 @@ export default function App() {
 
         if (msg.type === 'auth:rejected') {
           setConnectionError(msg.reason);
+          showToast(msg.reason);
           setScreen('menu');
           engineRef.current?.setMode('menu');
           ws.close();
@@ -589,6 +692,10 @@ export default function App() {
 
         if (msg.type === 'auth:welcome') {
           setProfile(msg.profile);
+          if (msg.profile.username && msg.profile.username !== 'Explorer') {
+            saveLocalUsername(msg.profile.username);
+            setNeedsUsername(false);
+          }
           setOnlineCount(msg.onlineCount);
           setMaxPlayers(msg.maxPlayers);
           setChatMessages(msg.recentChat);
@@ -596,12 +703,39 @@ export default function App() {
           setMaxHp(100);
           setAlive(true);
           setKilledBy(null);
+          setModeState(msg.modeState ?? null);
+          setActiveMode(msg.modeState?.mode || mode);
           setScreen('playing');
+          engineRef.current?.setMapMode(msg.modeState?.mode || mode);
+          engineRef.current?.syncCtfFlags(msg.modeState?.flags);
           engineRef.current?.setMode('playing');
           engineRef.current?.spawnPlayer(msg.selfId, msg.spawn.x, msg.spawn.y, msg.spawn.z);
           if (!touchEnabled) {
             setTimeout(() => engineRef.current?.requestPointerLock(), 80);
           }
+          return;
+        }
+
+        if (msg.type === 'net:pong') {
+          setPingMs(Math.max(1, Date.now() - msg.t));
+          return;
+        }
+
+        if (msg.type === 'mode:state') {
+          setModeState(msg.state);
+          engineRef.current?.syncCtfFlags(msg.state.flags);
+          if (msg.state.status === 'ended') {
+            engineRef.current?.exitPointerLock();
+          }
+          return;
+        }
+
+        if (msg.type === 'mode:banner') {
+          setModeBanner({ text: msg.text, tone: msg.tone });
+          if (modeBannerTimerRef.current) window.clearTimeout(modeBannerTimerRef.current);
+          modeBannerTimerRef.current = window.setTimeout(() => {
+            setModeBanner(null);
+          }, 4000);
           return;
         }
 
@@ -614,6 +748,7 @@ export default function App() {
             setHp(self.hp);
             setMaxHp(self.maxHp);
             setAlive(self.alive);
+            setSelfCarryingFlag(self.carryingFlag);
             engineRef.current?.setAlive(self.alive);
           }
           return;
@@ -741,6 +876,7 @@ export default function App() {
       ws.onclose = (ev) => {
         if (screenRef.current === 'playing') {
           setScreen('menu');
+          engineRef.current?.setMapMode('survival');
           engineRef.current?.setMode('menu');
           if (ev.code !== 1000 && ev.code !== 4000) {
             setConnectionError((prev) => prev || 'Disconnected from server.');
@@ -751,38 +887,98 @@ export default function App() {
     [showToast, touchEnabled]
   );
 
+  const handlePlayMode = useCallback(
+    async (mode: GameModeId, opponentClanId?: string) => {
+      if (!rulesAcceptedRef.current) {
+        pendingPlayAfterRulesRef.current = { mode, opponentClanId };
+        return;
+      }
+
+      if (mode === 'clanwar' && !opponentClanId) {
+        try {
+          const r = await fetch(`/api/clanwar/status?playerId=${encodeURIComponent(playerIdRef.current)}`);
+          const d = await r.json();
+          if (!d.eligible) {
+            showToast(d.message || 'Clan War requirements not met!');
+            setClanInitialTab('war');
+            setHomeModal('clans');
+            return;
+          }
+          if (Array.isArray(d.bigRivalClans) && d.bigRivalClans.length === 1) {
+            connectToMode('clanwar', 'frontier', d.bigRivalClans[0].id);
+            return;
+          }
+          setClanInitialTab('war');
+          setHomeModal('clans');
+          return;
+        } catch {
+          showToast('Could not check clan war status.');
+          return;
+        }
+      }
+
+      connectToMode(mode, 'frontier', opponentClanId);
+    },
+    [connectToMode, showToast]
+  );
+
   const handleReturnMenu = () => {
     audioEngine.playUiClick();
     wsRef.current?.close();
     wsRef.current = null;
     setGameModal(null);
     setChatOpen(false);
+    setModeState(null);
+    setModeBanner(null);
     setScreen('menu');
+    engineRef.current?.setMapMode('survival');
     engineRef.current?.setMode('menu');
   };
 
   const handleUsernameChange = async (username: string) => {
-    const res = await fetch('/api/profile/username', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        playerId: playerIdRef.current,
-        playerSecret: playerSecretRef.current,
-        username,
-      }),
-    });
-    if (res.ok) {
-      const d = await res.json();
-      if (d.profile) setProfile(d.profile);
-      try {
-        localStorage.setItem('terravox_username_set', '1');
-      } catch {
-        // ignore storage errors
+    const cleaned = username.trim().slice(0, 16);
+    if (cleaned.length < 2) {
+      showToast('Username must be at least 2 characters.');
+      return;
+    }
+
+    const submit = async (retried = false): Promise<void> => {
+      const res = await fetch('/api/profile/username', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          playerId: playerIdRef.current,
+          playerSecret: playerSecretRef.current,
+          username: cleaned,
+        }),
+      });
+      if (res.status === 403 && !retried) {
+        const creds = regeneratePlayerCredentials();
+        playerIdRef.current = creds.playerId;
+        playerSecretRef.current = creds.playerSecret;
+        return submit(true);
       }
+      if (res.ok) {
+        const d = await res.json();
+        const finalName = d.profile?.username || cleaned;
+        if (d.profile) setProfile(d.profile);
+        else setProfile((p) => ({ ...p, username: finalName }));
+        saveLocalUsername(finalName);
+        setNeedsUsername(false);
+      } else {
+        // Fallback: save locally so user is never blocked by external host glitches
+        saveLocalUsername(cleaned);
+        setProfile((p) => ({ ...p, username: cleaned }));
+        setNeedsUsername(false);
+      }
+    };
+
+    try {
+      await submit(false);
+    } catch {
+      saveLocalUsername(cleaned);
+      setProfile((p) => ({ ...p, username: cleaned }));
       setNeedsUsername(false);
-    } else {
-      const d = await res.json().catch(() => ({}));
-      showToast(d.error || 'Invalid username');
     }
   };
 
@@ -879,6 +1075,8 @@ export default function App() {
     setKeybinds({ ...DEFAULT_KEYBINDINGS });
   }, []);
 
+  const isMatchEnded = modeState?.status === 'ended';
+
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-slate-950">
       {/* Dedicated Isolated WebGL Canvas Container */}
@@ -886,12 +1084,12 @@ export default function App() {
 
       {/* Toast Notification */}
       {toast && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 mc-panel rounded-sm px-4 py-2 text-xs font-bold text-amber-200 mc-text-shadow">
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 mc-panel rounded-sm px-4 py-2 text-xs font-bold text-amber-200 mc-text-shadow max-w-[90vw] text-center">
           {toast}
         </div>
       )}
 
-      {/* First-Visit Username Prompt */}
+      {/* First-Visit Username Prompt (Shown only once before setup) */}
       {screen === 'menu' && needsUsername && (
         <UsernamePromptModal
           defaultName={profile.username}
@@ -916,8 +1114,9 @@ export default function App() {
             rulesAcceptedRef.current = true;
             setRulesAccepted(true);
             if (pendingPlayAfterRulesRef.current) {
-              pendingPlayAfterRulesRef.current = false;
-              handlePlay(selectedZone);
+              const pending = pendingPlayAfterRulesRef.current;
+              pendingPlayAfterRulesRef.current = null;
+              handlePlayMode(pending.mode, pending.opponentClanId);
             }
           }}
         />
@@ -928,8 +1127,9 @@ export default function App() {
         <HomeMenu
           profile={profile}
           muted={muted}
+          duelWaiting={duelWaiting}
           connectionError={connectionError}
-          onPlay={() => handlePlay('frontier')}
+          onPlayMode={(m) => handlePlayMode(m)}
           onUsernameChange={handleUsernameChange}
           onToggleMute={() => {
             const next = !muted;
@@ -938,6 +1138,7 @@ export default function App() {
           }}
           onOpenTab={(tab) => {
             audioEngine.playUiClick();
+            if (tab === 'clans') setClanInitialTab('create');
             setHomeModal(tab);
           }}
         />
@@ -957,7 +1158,12 @@ export default function App() {
         <ClansModal
           profile={profile}
           playerSecret={playerSecretRef.current}
+          initialTab={clanInitialTab}
           onProfileSync={setProfile}
+          onStartClanWar={(opponentClanId) => {
+            setHomeModal(null);
+            handlePlayMode('clanwar', opponentClanId);
+          }}
           onToast={showToast}
           onClose={() => setHomeModal(null)}
         />
@@ -1023,6 +1229,12 @@ export default function App() {
           scoped={scoped}
           keybinds={keybinds}
           coords={coords}
+          fps={fps}
+          pingMs={pingMs}
+          statsOverlayOpen={statsOverlayOpen}
+          modeState={modeState}
+          modeBanner={modeBanner}
+          selfCarryingFlag={selfCarryingFlag}
           activeSlot={activeSlot}
           targetBlockName={targetBlockName}
           mineProgress={mineProgress}
@@ -1033,6 +1245,7 @@ export default function App() {
           onlineCount={onlineCount}
           chatMessages={chatMessages}
           chatOpen={chatOpen}
+          chatHidden={chatHidden}
           killFeed={killFeed}
           killBanner={killBanner}
           touchControlsEnabled={touchEnabled}
@@ -1048,7 +1261,12 @@ export default function App() {
           }}
           onOpenChat={() => {
             engineRef.current?.exitPointerLock();
+            setChatHidden(false);
             setChatOpen(true);
+          }}
+          onToggleChatHidden={() => {
+            setChatOpen(false);
+            setChatHidden((v) => !v);
           }}
           onOpenMap={() => {
             engineRef.current?.exitPointerLock();
@@ -1087,6 +1305,7 @@ export default function App() {
           }}
           onLockPointer={() => engineRef.current?.requestPointerLock()}
           onToggleScope={() => engineRef.current?.toggleSniperScope()}
+          onUseMedkit={() => sendWs({ type: 'item:use', itemId: 'medkit' })}
           onTouchMove={(mx, my, sprint) => engineRef.current?.setTouchInput(mx, my, sprint)}
           onTouchLook={(dx, dy) => engineRef.current?.addTouchLookDelta(dx, dy)}
           onTouchJump={() => engineRef.current?.triggerTouchJump()}
@@ -1100,6 +1319,7 @@ export default function App() {
       {screen === 'playing' && gameModal === 'map' && (
         <WorldMapModal
           selfId={playerIdRef.current}
+          mode={activeMode}
           coords={coords}
           yaw={yaw}
           players={remotePlayers}
@@ -1211,8 +1431,67 @@ export default function App() {
         </div>
       )}
 
-      {/* Death & Respawn Overlay */}
-      {screen === 'playing' && !alive && (
+      {/* Arena Match Victory / Defeat Overlay (1v1, Cap Flag, Clan War) */}
+      {screen === 'playing' && isMatchEnded && modeState && (
+        <div className="fixed inset-0 z-40 bg-black/80 flex items-center justify-center p-4">
+          <div className="w-full max-w-sm mc-panel rounded-md p-6 text-center flex flex-col items-center gap-3">
+            <div
+              className={`w-16 h-16 mc-slot flex items-center justify-center ${
+                modeState.didWin ? 'border-[#7ce354]' : 'border-rose-500'
+              }`}
+            >
+              {modeState.didWin ? (
+                <Award className="w-9 h-9 text-[#7ce354]" />
+              ) : (
+                <Swords className="w-9 h-9 text-rose-400" />
+              )}
+            </div>
+            <h2
+              className={`font-display text-3xl font-bold mc-text-shadow ${
+                modeState.didWin ? 'text-[#7ce354]' : 'text-rose-400'
+              }`}
+            >
+              {modeState.didWin ? 'VICTORY!' : 'DEFEAT'}
+            </h2>
+            <p className="text-sm font-semibold text-white">
+              Winner: <span className="text-amber-300">{modeState.winnerName || 'Champion'}</span>
+            </p>
+            <div className="mc-slot w-full px-3 py-2 flex items-center justify-between text-xs font-mono-num">
+              <span className="text-rose-300 truncate max-w-[110px]">{modeState.redLabel}</span>
+              <span className="text-white font-bold">
+                {modeState.redScore} - {modeState.blueScore}
+              </span>
+              <span className="text-sky-300 truncate max-w-[110px]">{modeState.blueLabel}</span>
+            </div>
+            <div className="flex items-center gap-3 text-xs font-bold">
+              {typeof modeState.xpAwarded === 'number' && modeState.xpAwarded > 0 && (
+                <span className="text-[#7ce354]">+{modeState.xpAwarded} XP</span>
+              )}
+              {typeof modeState.coinsAwarded === 'number' && modeState.coinsAwarded > 0 && (
+                <span className="text-amber-300">+{modeState.coinsAwarded} Coins</span>
+              )}
+            </div>
+            <div className="w-full flex flex-col gap-2.5 mt-2">
+              <button
+                onClick={() => sendWs({ type: 'mode:rematch' })}
+                className="w-full py-3 rounded-sm mc-btn-green text-white font-display font-bold flex items-center justify-center gap-2 mc-text-shadow game-btn-depth cursor-pointer"
+              >
+                <RotateCcw className="w-4 h-4" />
+                Play Again
+              </button>
+              <button
+                onClick={handleReturnMenu}
+                className="w-full py-2.5 rounded-sm mc-btn-stone text-slate-100 font-display font-bold mc-text-shadow game-btn-depth cursor-pointer"
+              >
+                Title Screen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Death & Respawn Overlay (only when match hasn't ended) */}
+      {screen === 'playing' && !alive && !isMatchEnded && (
         <div className="fixed inset-0 z-40 bg-rose-950/75 flex items-center justify-center p-4">
           <div className="w-full max-w-sm mc-panel rounded-md p-6 text-center flex flex-col items-center gap-3">
             <div className="w-14 h-14 mc-slot flex items-center justify-center">

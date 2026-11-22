@@ -20,6 +20,7 @@ import {
   ShieldAlert,
   ShoppingBag,
   Sparkles,
+  Swords,
   Trash2,
   Trophy,
   UserCheck,
@@ -31,6 +32,7 @@ import {
 import type { EngineSettings } from '../game/VoxelEngine.ts';
 import {
   CLAN_MIN_LEVEL,
+  CLAN_WAR_MIN_MEMBERS,
   CRAFT_RECIPES,
   DEFAULT_KEYBINDINGS,
   formatKeyCode,
@@ -45,6 +47,7 @@ import {
   WORLD_MAX_Z,
   WORLD_MIN_X,
   WORLD_MIN_Z,
+  type GameModeId,
   type KeyActionId,
   type KeybindingsConfig,
 } from '../shared/constants.ts';
@@ -59,6 +62,8 @@ import type {
   ReportRecord,
 } from '../shared/protocol.ts';
 import {
+  CTF_FLAG_BASES,
+  getModeBounds,
   getRiverSample,
   getTerrainHeight,
   isDesertBiome,
@@ -66,6 +71,7 @@ import {
   SNIPER_TOWERS,
   WATER_LEVEL,
 } from '../shared/worldGen.ts';
+import { GUN_IMAGES, GUN_SKIN_IMAGES } from './gunImages.ts';
 import { ItemIcon } from './ItemIcon.tsx';
 
 // ---- 1. Inventory & Crafting Workbench (Press X) ----
@@ -424,19 +430,17 @@ export const ShopSkinsModal: React.FC<ShopSkinsModalProps> = ({
                     equipped ? 'mc-slot-active' : 'mc-slot'
                   }`}
                 >
-                  <div className="flex items-center gap-3">
-                    <div
-                      className="w-14 h-12 border-2 border-black/40 flex flex-col items-center justify-center shrink-0 relative overflow-hidden"
-                      style={{ background: `linear-gradient(135deg, ${gs.primaryHex}, ${gs.secondaryHex})` }}
-                    >
-                      <div className="w-10 h-2.5 relative" style={{ backgroundColor: gs.primaryHex, border: `1px solid ${gs.accentHex}` }}>
-                        <div className="absolute -top-1.5 left-3 w-3 h-1.5" style={{ backgroundColor: gs.accentHex }} />
-                        <div className="absolute top-2.5 left-4 w-2 h-2.5" style={{ backgroundColor: gs.secondaryHex }} />
-                        <div className="absolute top-0.5 -right-2 w-2.5 h-1" style={{ backgroundColor: gs.accentHex }} />
-                      </div>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-20 h-12 border-2 border-black/50 bg-[#141619] shrink-0 overflow-hidden rounded-xs">
+                      <img
+                        src={GUN_SKIN_IMAGES[gs.id] || GUN_SKIN_IMAGES.carbon}
+                        alt={gs.name}
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover"
+                      />
                     </div>
-                    <div>
-                      <div className="font-bold text-sm text-white">{gs.name}</div>
+                    <div className="min-w-0">
+                      <div className="font-bold text-sm text-white truncate">{gs.name}</div>
                       <div className="text-xs text-slate-300 mt-0.5 capitalize">
                         {unlocked ? (equipped ? 'Equipped' : 'Unlocked') : gs.price === 0 ? 'FREE' : `${gs.price} Coins`} · {gs.pattern}
                       </div>
@@ -655,8 +659,8 @@ export const LeaderboardSettingsModal: React.FC<LeaderboardSettingsModalProps> =
 
             <label className="mc-slot flex items-center justify-between px-4 py-3 cursor-pointer">
               <div>
-                <div className="font-bold text-white">Tablet Touch Controls</div>
-                <div className="text-xs text-slate-300">On-screen virtual stick &amp; fire/mine buttons</div>
+                <div className="font-bold text-white">Mobile / Touch Controls</div>
+                <div className="text-xs text-slate-300">On-screen virtual joystick &amp; fire/mine buttons</div>
               </div>
               <input
                 type="checkbox"
@@ -1578,21 +1582,24 @@ export const GunsArmoryModal: React.FC<GunsArmoryModalProps> = ({
                   }`}
                 >
                   <div>
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-12 h-12 bg-[#1e2024] border border-black/50 flex items-center justify-center shrink-0">
-                          <ItemIcon itemId={gun.id} size={36} />
-                        </div>
-                        <div>
-                          <div className="font-display font-bold text-sm text-white">{gun.name}</div>
-                          <div className="text-[11px] font-semibold text-sky-300">{gun.category}</div>
-                        </div>
-                      </div>
-                      <span className="text-[11px] font-mono-num font-bold text-amber-300 bg-black/35 px-2 py-0.5 rounded-sm">
+                    <div className="relative h-28 w-full mb-2.5 rounded-xs overflow-hidden border border-black/60 bg-[#141619]">
+                      <img
+                        src={GUN_IMAGES[gun.id] || GUN_IMAGES.rifle}
+                        alt={gun.name}
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover"
+                      />
+                      <span className="absolute top-1.5 right-1.5 text-[10px] font-mono-num font-bold text-amber-300 bg-black/75 border border-white/15 px-2 py-0.5 rounded-xs">
                         {gun.magSize} MAG
                       </span>
                     </div>
-                    <p className="text-[11px] text-slate-300 mt-2 leading-snug">{gun.description}</p>
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <div className="font-display font-bold text-sm text-white">{gun.name}</div>
+                        <div className="text-[11px] font-semibold text-sky-300">{gun.category}</div>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-slate-300 mt-1.5 leading-snug">{gun.description}</p>
 
                     {/* Stat Bars */}
                     <div className="mt-2.5 flex flex-col gap-1.5 text-[10px] font-mono-num">
@@ -1666,19 +1673,17 @@ export const GunsArmoryModal: React.FC<GunsArmoryModalProps> = ({
                     equipped ? 'mc-slot-active' : 'mc-slot'
                   }`}
                 >
-                  <div className="flex items-center gap-3">
-                    <div
-                      className="w-14 h-12 border-2 border-black/40 flex flex-col items-center justify-center shrink-0 relative overflow-hidden"
-                      style={{ background: `linear-gradient(135deg, ${gs.primaryHex}, ${gs.secondaryHex})` }}
-                    >
-                      <div className="w-10 h-2.5 relative" style={{ backgroundColor: gs.primaryHex, border: `1px solid ${gs.accentHex}` }}>
-                        <div className="absolute -top-1.5 left-3 w-3 h-1.5" style={{ backgroundColor: gs.accentHex }} />
-                        <div className="absolute top-2.5 left-4 w-2 h-2.5" style={{ backgroundColor: gs.secondaryHex }} />
-                        <div className="absolute top-0.5 -right-2 w-2.5 h-1" style={{ backgroundColor: gs.accentHex }} />
-                      </div>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-20 h-12 border-2 border-black/50 bg-[#141619] shrink-0 overflow-hidden rounded-xs">
+                      <img
+                        src={GUN_SKIN_IMAGES[gs.id] || GUN_SKIN_IMAGES.carbon}
+                        alt={gs.name}
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover"
+                      />
                     </div>
-                    <div>
-                      <div className="font-bold text-sm text-white">{gs.name}</div>
+                    <div className="min-w-0">
+                      <div className="font-bold text-sm text-white truncate">{gs.name}</div>
                       <div className="text-xs text-slate-300 mt-0.5 capitalize">
                         {unlocked ? (equipped ? 'Equipped' : 'Free · Unlocked') : gs.price === 0 ? 'FREE' : `${gs.price} Coins`} · {gs.pattern}
                       </div>
@@ -1707,11 +1712,28 @@ export const GunsArmoryModal: React.FC<GunsArmoryModalProps> = ({
   );
 };
 
-// ---- 8. Clans Modal (Level 5+ & Cross-Device Password Management) ----
+// ---- 8. Clans Modal (Level 5+, Cross-Device Password Management & Clan Wars) ----
+interface ClanWarStatusResponse {
+  eligible: boolean;
+  errorCode?: 'NO_CLAN' | 'NO_BIG_CLAN' | 'NO_BIG_RIVAL';
+  message?: string;
+  playerClan?: ClanRecord;
+  bigRivalClans: ClanRecord[];
+  activeChallenges?: Array<{
+    roomId: string;
+    redClanId?: string;
+    blueClanId?: string;
+    redLabel: string;
+    blueLabel: string;
+  }>;
+}
+
 interface ClansModalProps {
   profile: PlayerProfileState;
   playerSecret: string;
+  initialTab?: 'create' | 'manage' | 'war';
   onProfileSync: (p: PlayerProfileState) => void;
+  onStartClanWar?: (opponentClanId?: string) => void;
   onToast: (msg: string) => void;
   onClose: () => void;
 }
@@ -1719,16 +1741,19 @@ interface ClansModalProps {
 export const ClansModal: React.FC<ClansModalProps> = ({
   profile,
   playerSecret,
+  initialTab = 'create',
   onProfileSync,
+  onStartClanWar,
   onToast,
   onClose,
 }) => {
   const [clans, setClans] = useState<ClanRecord[]>([]);
-  const [leftTab, setLeftTab] = useState<'create' | 'manage'>('create');
+  const [leftTab, setLeftTab] = useState<'create' | 'manage' | 'war'>(initialTab);
   const [clanName, setClanName] = useState('');
   const [clanTag, setClanTag] = useState('');
   const [clanDesc, setClanDesc] = useState('');
   const [clanPassword, setClanPassword] = useState('');
+  const [warStatus, setWarStatus] = useState<ClanWarStatusResponse | null>(null);
 
   // Cross-device password management state
   const [manageIdentifier, setManageIdentifier] = useState('');
@@ -1743,11 +1768,15 @@ export const ClansModal: React.FC<ClansModalProps> = ({
       .then((r) => r.json())
       .then((d) => setClans(d.clans || []))
       .catch(() => {});
+    fetch(`/api/clanwar/status?playerId=${encodeURIComponent(profile.playerId)}`)
+      .then((r) => r.json())
+      .then((d) => setWarStatus(d))
+      .catch(() => {});
   };
 
   useEffect(() => {
     loadClans();
-  }, []);
+  }, [profile.playerId, profile.clanId]);
 
   const canUseClans = profile.level >= CLAN_MIN_LEVEL;
   const myClan = clans.find((c) => c.id === profile.clanId);
@@ -2052,20 +2081,30 @@ export const ClansModal: React.FC<ClansModalProps> = ({
                       [{myClan.tag}] {myClan.name}
                     </div>
                     <div className="text-[11px] text-slate-300 mt-0.5">
-                      Leader: {myClan.leaderName} · {myClan.totalKills} Clan Kills
+                      Leader: {myClan.leaderName} · {myClan.totalKills} Kills · {myClan.warWins ?? 0} War Wins
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setManageIdentifier(myClan.tag);
-                      setLeftTab('manage');
-                    }}
-                    className="px-2.5 py-1 rounded-sm mc-btn-stone text-[11px] font-bold text-amber-300 flex items-center gap-1 cursor-pointer"
-                  >
-                    <KeyRound className="w-3 h-3" />
-                    Manage
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setLeftTab('war')}
+                      className="px-2.5 py-1 rounded-sm mc-btn-green text-[11px] font-bold text-white flex items-center gap-1 cursor-pointer"
+                    >
+                      <Swords className="w-3 h-3" />
+                      War
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setManageIdentifier(myClan.tag);
+                        setLeftTab('manage');
+                      }}
+                      className="px-2.5 py-1 rounded-sm mc-btn-stone text-[11px] font-bold text-amber-300 flex items-center gap-1 cursor-pointer"
+                    >
+                      <KeyRound className="w-3 h-3" />
+                      Manage
+                    </button>
+                  </div>
                 </div>
                 {myClan.description && (
                   <p className="text-xs text-slate-200 bg-black/25 p-2 rounded-sm">{myClan.description}</p>
@@ -2090,7 +2129,7 @@ export const ClansModal: React.FC<ClansModalProps> = ({
               </>
             ) : (
               <div className="flex flex-col gap-2.5">
-                <div className="flex gap-1.5">
+                <div className="flex gap-1">
                   <button
                     type="button"
                     onClick={() => setLeftTab('create')}
@@ -2098,7 +2137,17 @@ export const ClansModal: React.FC<ClansModalProps> = ({
                       leftTab === 'create' ? 'mc-btn-green text-white' : 'mc-btn-stone text-slate-200'
                     }`}
                   >
-                    {myClan ? 'My Clan' : 'Create Clan'}
+                    {myClan ? 'My Clan' : 'Create'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLeftTab('war')}
+                    className={`flex-1 py-1.5 rounded-sm text-xs font-display font-bold flex items-center justify-center gap-1 cursor-pointer ${
+                      leftTab === 'war' ? 'mc-btn-green text-white' : 'mc-btn-stone text-slate-200'
+                    }`}
+                  >
+                    <Swords className="w-3.5 h-3.5" />
+                    Clan War
                   </button>
                   <button
                     type="button"
@@ -2108,11 +2157,58 @@ export const ClansModal: React.FC<ClansModalProps> = ({
                     }`}
                   >
                     <KeyRound className="w-3.5 h-3.5" />
-                    Manage (Pass)
+                    Manage
                   </button>
                 </div>
 
-                {leftTab === 'manage' ? (
+                {leftTab === 'war' ? (
+                  <div className="flex flex-col gap-2.5">
+                    {!warStatus ? (
+                      <div className="text-xs text-slate-300 py-4 text-center">Checking clan war status...</div>
+                    ) : !warStatus.eligible ? (
+                      <div className="bg-rose-950/70 border border-rose-500/60 rounded-sm p-3 text-xs text-rose-200 leading-relaxed">
+                        <div className="font-bold text-rose-300 mb-1">
+                          {warStatus.errorCode === 'NO_CLAN'
+                            ? 'No clan found'
+                            : warStatus.errorCode === 'NO_BIG_CLAN'
+                            ? 'No big clan found'
+                            : 'No big rival clan found'}
+                        </div>
+                        {warStatus.message ||
+                          `Clan Wars require your clan and a rival clan with ${CLAN_WAR_MIN_MEMBERS}+ members each.`}
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-2 max-h-56 overflow-y-auto game-scroll">
+                        <div className="text-[11px] font-bold text-[#7ce354]">
+                          Choose a Rival Clan ({CLAN_WAR_MIN_MEMBERS}+ members) to Declare War:
+                        </div>
+                        {warStatus.bigRivalClans.map((rc) => (
+                          <div
+                            key={rc.id}
+                            className="bg-[#1b1d20] border border-white/10 p-2 rounded-sm flex items-center justify-between gap-2"
+                          >
+                            <div className="min-w-0">
+                              <div className="text-xs font-bold text-white truncate">
+                                <span className="text-rose-400 mr-1">[{rc.tag}]</span>
+                                {rc.name}
+                              </div>
+                              <div className="text-[10px] text-slate-300">
+                                {rc.memberIds.length} Members · {rc.warWins ?? 0} War Wins
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => onStartClanWar?.(rc.id)}
+                              className="px-2.5 py-1 rounded-sm mc-btn-green text-[11px] font-display font-bold text-white cursor-pointer shrink-0"
+                            >
+                              Declare War
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : leftTab === 'manage' ? (
                   <form onSubmit={handleManageVerify} className="flex flex-col gap-2">
                     <div className="text-[11px] text-slate-300">
                       On a new device? Enter your Clan Name or Tag and Password to manage or reclaim leadership.
@@ -2217,6 +2313,12 @@ export const ClansModal: React.FC<ClansModalProps> = ({
                         </span>
                         <span>·</span>
                         <span>{c.totalKills} Kills</span>
+                        {(c.warWins ?? 0) > 0 && (
+                          <>
+                            <span>·</span>
+                            <span className="text-amber-300">{c.warWins} War Wins</span>
+                          </>
+                        )}
                       </div>
                     </div>
                     {isMember ? (
@@ -2527,6 +2629,7 @@ export const AboutUsModal: React.FC<AboutUsModalProps> = ({ onClose }) => {
 // ---- 11. Live World Map Modal (Press M) ----
 interface WorldMapModalProps {
   selfId: string;
+  mode?: GameModeId;
   coords: { x: number; y: number; z: number };
   yaw: number;
   players: PlayerPublicState[];
@@ -2535,12 +2638,14 @@ interface WorldMapModalProps {
 
 export const WorldMapModal: React.FC<WorldMapModalProps> = ({
   selfId,
+  mode = 'survival',
   coords,
   yaw,
   players,
   onClose,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const bounds = useMemo(() => getModeBounds(mode), [mode]);
 
   const terrainBackdrop = useMemo(() => {
     const sampleW = 375;
@@ -2550,6 +2655,24 @@ export const WorldMapModal: React.FC<WorldMapModalProps> = ({
     off.height = sampleH;
     const ctx = off.getContext('2d');
     if (!ctx) return off;
+
+    if (mode !== 'survival') {
+      ctx.fillStyle = '#3c7a3e';
+      ctx.fillRect(0, 0, sampleW, sampleH);
+      if (mode === 'ctf') {
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.22)';
+        ctx.fillRect(0, 0, sampleW * 0.48, sampleH);
+        ctx.fillStyle = 'rgba(59, 130, 246, 0.22)';
+        ctx.fillRect(sampleW * 0.52, 0, sampleW * 0.48, sampleH);
+        ctx.fillStyle = '#2563eb';
+        ctx.fillRect(sampleW * 0.48, 0, sampleW * 0.04, sampleH);
+      } else {
+        ctx.fillStyle = '#64748b';
+        ctx.fillRect(sampleW * 0.47, 0, sampleW * 0.06, sampleH);
+        ctx.fillRect(0, sampleH * 0.45, sampleW, sampleH * 0.1);
+      }
+      return off;
+    }
 
     const img = ctx.createImageData(sampleW, sampleH);
     const spanX = WORLD_MAX_X - WORLD_MIN_X;
@@ -2596,7 +2719,7 @@ export const WorldMapModal: React.FC<WorldMapModalProps> = ({
     }
     ctx.putImageData(img, 0, 0);
     return off;
-  }, []);
+  }, [mode]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -2606,8 +2729,10 @@ export const WorldMapModal: React.FC<WorldMapModalProps> = ({
 
     const W = canvas.width;
     const H = canvas.height;
-    const toCanvasX = (wx: number) => ((wx - WORLD_MIN_X) / (WORLD_MAX_X - WORLD_MIN_X)) * W;
-    const toCanvasZ = (wz: number) => ((wz - WORLD_MIN_Z) / (WORLD_MAX_Z - WORLD_MIN_Z)) * H;
+    const spanX = Math.max(1, bounds.maxX - bounds.minX);
+    const spanZ = Math.max(1, bounds.maxZ - bounds.minZ);
+    const toCanvasX = (wx: number) => ((wx - bounds.minX) / spanX) * W;
+    const toCanvasZ = (wz: number) => ((wz - bounds.minZ) / spanZ) * H;
 
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(terrainBackdrop, 0, 0, W, H);
@@ -2615,14 +2740,16 @@ export const WorldMapModal: React.FC<WorldMapModalProps> = ({
     // Subtle grid lines
     ctx.strokeStyle = 'rgba(15, 23, 42, 0.14)';
     ctx.lineWidth = 1;
-    for (let gx = -600; gx <= 600; gx += 150) {
+    const stepX = mode === 'survival' ? 150 : 20;
+    const stepZ = mode === 'survival' ? 100 : 20;
+    for (let gx = Math.ceil(bounds.minX / stepX) * stepX; gx <= bounds.maxX; gx += stepX) {
       const cx = toCanvasX(gx);
       ctx.beginPath();
       ctx.moveTo(cx, 0);
       ctx.lineTo(cx, H);
       ctx.stroke();
     }
-    for (let gz = -200; gz <= 200; gz += 100) {
+    for (let gz = Math.ceil(bounds.minZ / stepZ) * stepZ; gz <= bounds.maxZ; gz += stepZ) {
       const cz = toCanvasZ(gz);
       ctx.beginPath();
       ctx.moveTo(0, cz);
@@ -2640,65 +2767,93 @@ export const WorldMapModal: React.FC<WorldMapModalProps> = ({
       ctx.fillText(label, x, y + 12);
     };
 
-    // Lava Craters
-    for (let i = 0; i < LAVA_CRATERS.length; i++) {
-      const c = LAVA_CRATERS[i];
-      const lx = toCanvasX(c.x);
-      const lz = toCanvasZ(c.z);
-      const lr = Math.max(5, (c.radius / (WORLD_MAX_X - WORLD_MIN_X)) * W);
-      ctx.fillStyle = '#ea580c';
-      ctx.beginPath();
-      ctx.arc(lx, lz, lr, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#fde047';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
+    if (mode === 'survival') {
+      // Lava Craters
+      for (let i = 0; i < LAVA_CRATERS.length; i++) {
+        const c = LAVA_CRATERS[i];
+        const lx = toCanvasX(c.x);
+        const lz = toCanvasZ(c.z);
+        const lr = Math.max(5, (c.radius / spanX) * W);
+        ctx.fillStyle = '#ea580c';
+        ctx.beginPath();
+        ctx.arc(lx, lz, lr, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#fde047';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
 
-      if (i === 1 || i === 3) {
-        drawPlaceBadge('Lava Pool', lx, lz + lr + 4, '#fdba74');
+        if (i === 1 || i === 3) {
+          drawPlaceBadge('Lava Pool', lx, lz + lr + 4, '#fdba74');
+        }
       }
-    }
 
-    // Central Citadel Marker
-    const citX = toCanvasX(0);
-    const citZ = toCanvasZ(0);
-    ctx.fillStyle = '#0ea5e9';
-    ctx.fillRect(citX - 6, citZ - 6, 12, 12);
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(citX - 6, citZ - 6, 12, 12);
-    drawPlaceBadge('Central Citadel', citX, citZ - 26, '#7dd3fc');
-
-    // Spawn Zones
-    for (const z of SPAWN_ZONES) {
-      const zx = toCanvasX(z.x);
-      const zz = toCanvasZ(z.z);
-      ctx.fillStyle = '#22c55e';
-      ctx.beginPath();
-      ctx.arc(zx, zz, 4.5, 0, Math.PI * 2);
-      ctx.fill();
+      // Central Citadel Marker
+      const citX = toCanvasX(0);
+      const citZ = toCanvasZ(0);
+      ctx.fillStyle = '#0ea5e9';
+      ctx.fillRect(citX - 6, citZ - 6, 12, 12);
       ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      const offsetY = z.id === 'frontier' ? zz + 18 : zz + 9;
-      drawPlaceBadge(z.name, zx, offsetY, '#f8fafc');
-    }
+      ctx.lineWidth = 2;
+      ctx.strokeRect(citX - 6, citZ - 6, 12, 12);
+      drawPlaceBadge('Central Citadel', citX, citZ - 26, '#7dd3fc');
 
-    // 3 Stone Sniper Towers
-    for (const t of SNIPER_TOWERS) {
-      const tx = toCanvasX(t.x);
-      const tz = toCanvasZ(t.z);
-      ctx.fillStyle = '#334155';
-      ctx.strokeStyle = '#fbbf24';
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      ctx.rect(tx - 6, tz - 6, 12, 12);
-      ctx.fill();
-      ctx.stroke();
+      // Spawn Zones
+      for (const z of SPAWN_ZONES) {
+        const zx = toCanvasX(z.x);
+        const zz = toCanvasZ(z.z);
+        ctx.fillStyle = '#22c55e';
+        ctx.beginPath();
+        ctx.arc(zx, zz, 4.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        const offsetY = z.id === 'frontier' ? zz + 18 : zz + 9;
+        drawPlaceBadge(z.name, zx, offsetY, '#f8fafc');
+      }
 
-      const labelY = t.id === 'frontier_tower' ? tz + 7 : tz - 25;
-      const labelX = t.id === 'frontier_tower' ? tx + 24 : tx;
-      drawPlaceBadge(t.name, labelX, labelY, '#fde047');
+      // 3 Stone Sniper Towers
+      for (const t of SNIPER_TOWERS) {
+        const tx = toCanvasX(t.x);
+        const tz = toCanvasZ(t.z);
+        ctx.fillStyle = '#334155';
+        ctx.strokeStyle = '#fbbf24';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.rect(tx - 6, tz - 6, 12, 12);
+        ctx.fill();
+        ctx.stroke();
+
+        const labelY = t.id === 'frontier_tower' ? tz + 7 : tz - 25;
+        const labelX = t.id === 'frontier_tower' ? tx + 24 : tx;
+        drawPlaceBadge(t.name, labelX, labelY, '#fde047');
+      }
+    } else if (mode === 'ctf') {
+      const rX = toCanvasX(CTF_FLAG_BASES.red.x);
+      const rZ = toCanvasZ(CTF_FLAG_BASES.red.z);
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(rX - 8, rZ - 8, 16, 16);
+      drawPlaceBadge('Red Flag Base', rX, rZ + 12, '#fca5a5');
+
+      const bX = toCanvasX(CTF_FLAG_BASES.blue.x);
+      const bZ = toCanvasZ(CTF_FLAG_BASES.blue.z);
+      ctx.fillStyle = '#3b82f6';
+      ctx.fillRect(bX - 8, bZ - 8, 16, 16);
+      drawPlaceBadge('Blue Flag Base', bX, bZ + 12, '#93c5fd');
+    } else if (mode === 'duel') {
+      for (const tx of [-18, 18]) {
+        for (const tz of [-30, 30]) {
+          ctx.fillStyle = '#334155';
+          ctx.strokeStyle = '#fbbf24';
+          ctx.lineWidth = 2;
+          ctx.fillRect(toCanvasX(tx) - 5, toCanvasZ(tz) - 5, 10, 10);
+          ctx.strokeRect(toCanvasX(tx) - 5, toCanvasZ(tz) - 5, 10, 10);
+        }
+      }
+      drawPlaceBadge('1v1 Battleground (100×100)', W / 2, 10, '#fde047');
+    } else if (mode === 'clanwar') {
+      drawPlaceBadge('Red Clan Bastion', toCanvasX(-38), H / 2 + 12, '#fca5a5');
+      drawPlaceBadge('Blue Clan Bastion', toCanvasX(38), H / 2 + 12, '#93c5fd');
     }
 
     // Remote Players
@@ -2706,7 +2861,7 @@ export const WorldMapModal: React.FC<WorldMapModalProps> = ({
       if (p.id === selfId || !p.alive) continue;
       const px = toCanvasX(p.x);
       const pz = toCanvasZ(p.z);
-      ctx.fillStyle = p.isMod ? '#fbbf24' : '#ef4444';
+      ctx.fillStyle = p.team === 'blue' ? '#3b82f6' : p.team === 'red' ? '#ef4444' : p.isMod ? '#fbbf24' : '#ef4444';
       ctx.beginPath();
       ctx.arc(px, pz, 5, 0, Math.PI * 2);
       ctx.fill();
@@ -2738,7 +2893,7 @@ export const WorldMapModal: React.FC<WorldMapModalProps> = ({
     ctx.stroke();
     ctx.restore();
     drawPlaceBadge('You', sx, sz + 12, '#86efac');
-  }, [terrainBackdrop, coords, yaw, players, selfId]);
+  }, [terrainBackdrop, coords, yaw, players, selfId, bounds, mode]);
 
   return (
     <div className="fixed inset-0 z-30 bg-black/75 flex items-center justify-center p-4">

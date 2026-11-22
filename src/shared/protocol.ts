@@ -45,6 +45,7 @@ export interface ModeMatchState {
   redScore: number;
   blueScore: number;
   targetScore: number;
+  endsAt?: number;
   waitingText?: string;
   winnerTeam?: TeamSide;
   winnerName?: string;
@@ -211,6 +212,10 @@ export type ClientWsMessage =
       type: 'mode:rematch';
     }
   | {
+      type: 'net:ping';
+      t: number;
+    }
+  | {
       type: 'player:move';
       x: number;
       y: number;
@@ -308,6 +313,10 @@ export type ServerWsMessage =
       type: 'mode:banner';
       text: string;
       tone: 'red' | 'blue' | 'gold' | 'green';
+    }
+  | {
+      type: 'net:pong';
+      t: number;
     }
   | {
       type: 'world:players';

@@ -90,6 +90,7 @@ export interface EngineCallbacks {
     mineProgress: number;
     reloadProgress: number;
     pointerLocked: boolean;
+    fps: number;
   }) => void;
   onPointerLockChange: (locked: boolean) => void;
 }
@@ -232,6 +233,9 @@ export class VoxelEngine {
   private lastTime = performance.now();
   private lastNetMoveAt = 0;
   private lastHudAt = 0;
+  private fpsFrames = 0;
+  private fpsWindowAt = performance.now();
+  private currentFps = 60;
   private disposed = false;
 
   private particleGeo = new THREE.BoxGeometry(0.14, 0.14, 0.14);
@@ -1531,6 +1535,7 @@ export class VoxelEngine {
       } else if (this.heldItemId === 'medkit' && activeLeft) {
         this.breakOverlayMesh.visible = false;
         this.mouseDownLeft = false;
+        this.touchMining = false;
         this.callbacks.onUseMedkit();
       } else if (hit && activeLeft) {
         const meta = BLOCK_META[hit.blockId];
@@ -1596,6 +1601,13 @@ export class VoxelEngine {
     const rawDt = (now - this.lastTime) / 1000;
     this.lastTime = now;
     const dt = Math.min(rawDt, 0.05);
+
+    this.fpsFrames += 1;
+    if (now - this.fpsWindowAt >= 500) {
+      this.currentFps = Math.max(1, Math.round((this.fpsFrames * 1000) / (now - this.fpsWindowAt)));
+      this.fpsFrames = 0;
+      this.fpsWindowAt = now;
+    }
 
     if (this.mode === 'menu') {
       // Clean static hero camera framing (no spinning)
@@ -1767,6 +1779,7 @@ export class VoxelEngine {
           mineProgress,
           reloadProgress,
           pointerLocked: this.pointerLocked,
+          fps: this.currentFps,
         });
       }
     }

@@ -5,6 +5,7 @@ import {
   Coins,
   Crosshair,
   ExternalLink,
+  Flag,
   Info,
   Pencil,
   Play,
@@ -12,12 +13,14 @@ import {
   Shield,
   ShieldAlert,
   Sparkles,
+  Swords,
   Trophy,
   Volume2,
   VolumeX,
 } from 'lucide-react';
 import survivorAvatar from '../assets/images/survivor_avatar_1795260352064.jpg';
 import homeBgImage from '../assets/images/terravox_home_bg_1795267570327.jpg';
+import type { GameModeId } from '../shared/constants.ts';
 import type { PlayerProfileState } from '../shared/protocol.ts';
 
 export type HomeTab =
@@ -53,8 +56,9 @@ const YOUTUBERS = [
 interface HomeMenuProps {
   profile: PlayerProfileState;
   muted: boolean;
+  duelWaiting?: number;
   connectionError: string | null;
-  onPlay: () => void;
+  onPlayMode: (mode: GameModeId) => void;
   onUsernameChange: (name: string) => void;
   onToggleMute: () => void;
   onOpenTab: (tab: HomeTab) => void;
@@ -73,8 +77,9 @@ const YoutubeFallbackIcon: React.FC<{ className?: string }> = ({ className = 'w-
 export const HomeMenu: React.FC<HomeMenuProps> = ({
   profile,
   muted,
+  duelWaiting = 0,
   connectionError,
-  onPlay,
+  onPlayMode,
   onUsernameChange,
   onToggleMute,
   onOpenTab,
@@ -96,8 +101,99 @@ export const HomeMenu: React.FC<HomeMenuProps> = ({
     }
   };
 
+  const ProfileCard = (
+    <div className="pointer-events-auto game-card-bright rounded-2xl px-3 py-2 flex items-center gap-2.5 sm:gap-3 min-w-0">
+      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl overflow-hidden border-2 border-emerald-500 bg-emerald-50 shrink-0 shadow-sm">
+        {!avatarFailed ? (
+          <img
+            src={survivorAvatar}
+            alt={`${profile.username} avatar`}
+            referrerPolicy="no-referrer"
+            onError={() => setAvatarFailed(true)}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center bg-emerald-500 font-display text-lg text-white">
+            {profile.username.slice(0, 2).toUpperCase()}
+          </div>
+        )}
+      </div>
+
+      <div className="min-w-0 text-left">
+        {editingName ? (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              commitName();
+            }}
+          >
+            <input
+              autoFocus
+              maxLength={16}
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onBlur={commitName}
+              className="bg-white border-2 border-emerald-500 rounded-lg px-2 py-0.5 text-sm font-bold text-slate-900 w-32 outline-none text-left"
+            />
+          </form>
+        ) : (
+          <button
+            onClick={() => {
+              setNameDraft(profile.username);
+              setEditingName(true);
+            }}
+            title="Click to edit username"
+            className="inline-flex items-center justify-start gap-1.5 font-display text-slate-900 text-sm sm:text-lg hover:text-emerald-600 transition-colors truncate max-w-[180px] sm:max-w-[220px] cursor-pointer"
+          >
+            {profile.isMod && (
+              <span className="px-1.5 py-0.5 rounded-md bg-amber-400 text-slate-950 font-sans text-[10px] font-black tracking-wide shrink-0">
+                MOD
+              </span>
+            )}
+            <span className="truncate">
+              {profile.username}
+              {profile.clanName ? (
+                <span className="text-emerald-600 ml-1">({profile.clanName})</span>
+              ) : null}
+            </span>
+            <Pencil className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          </button>
+        )}
+        <div className="flex items-center justify-start gap-1.5 sm:gap-2 text-[11px] sm:text-xs text-slate-600 tabular-nums mt-0.5 font-bold">
+          <span className="text-emerald-600">Lv.{profile.level}</span>
+          <span className="text-slate-300">·</span>
+          <span className="text-sky-600">{profile.xp} XP</span>
+          <span className="text-slate-300">·</span>
+          <span className="inline-flex items-center gap-1 text-amber-600">
+            <Coins className="w-3.5 h-3.5 text-amber-500" />
+            {profile.coins}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+
+  const AudioSettingsButtons = (
+    <div className="pointer-events-auto flex items-center gap-2 shrink-0">
+      <button
+        onClick={onToggleMute}
+        title={muted ? 'Unmute Audio' : 'Mute Audio'}
+        className="arcade-btn arcade-btn-light w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center text-slate-800 cursor-pointer"
+      >
+        {muted ? <VolumeX className="w-5 h-5 text-rose-500" /> : <Volume2 className="w-5 h-5 text-emerald-600" />}
+      </button>
+      <button
+        onClick={() => onOpenTab('settings')}
+        title="Settings & Controls"
+        className="arcade-btn arcade-btn-light w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center text-slate-800 cursor-pointer"
+      >
+        <Settings className="w-5 h-5 text-slate-700" />
+      </button>
+    </div>
+  );
+
   return (
-    <div className="fixed inset-0 z-10 pointer-events-none select-none p-4 sm:p-6 flex flex-col justify-between">
+    <div className="fixed inset-0 z-10 pointer-events-none select-none overflow-y-auto md:overflow-hidden p-3 sm:p-6 flex flex-col justify-between">
       {/* Full-bleed Voxel Landscape Background Image */}
       <div className="fixed inset-0 -z-10 bg-gradient-to-b from-sky-400 via-emerald-600 to-emerald-950 overflow-hidden">
         {!bgFailed && (
@@ -113,141 +209,77 @@ export const HomeMenu: React.FC<HomeMenuProps> = ({
           className="absolute inset-0"
           style={{
             background:
-              'radial-gradient(circle at 50% 44%, rgba(15,23,42,0.06) 0%, rgba(15,23,42,0.28) 100%)',
+              'radial-gradient(circle at 50% 44%, rgba(15,23,42,0.08) 0%, rgba(15,23,42,0.34) 100%)',
           }}
         />
       </div>
 
-      <div className="relative flex-1 flex items-stretch justify-between gap-4">
-        {/* LEFT SIDE: User Profile Account Card + Vibrant Arcade Dock (GUNS, CLANS, SKINS, RANK) */}
-        <div className="flex flex-col justify-start items-start gap-3 z-20">
-          {/* Bright User Profile Card (Left Side) */}
-          <div className="pointer-events-auto game-card-bright rounded-2xl px-3 py-2 flex items-center gap-3">
-            {/* Real Avatar Portrait */}
-            <div className="w-12 h-12 rounded-xl overflow-hidden border-2 border-emerald-500 bg-emerald-50 shrink-0 shadow-sm">
-              {!avatarFailed ? (
-                <img
-                  src={survivorAvatar}
-                  alt={`${profile.username} avatar`}
-                  referrerPolicy="no-referrer"
-                  onError={() => setAvatarFailed(true)}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center bg-emerald-500 font-display text-lg text-white">
-                  {profile.username.slice(0, 2).toUpperCase()}
-                </div>
-              )}
-            </div>
+      {/* MOBILE TOP BAR (< md) */}
+      <div className="flex md:hidden items-center justify-between gap-2 w-full mb-3">
+        {ProfileCard}
+        {AudioSettingsButtons}
+      </div>
 
-            <div className="min-w-0 text-left">
-              {editingName ? (
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    commitName();
-                  }}
-                >
-                  <input
-                    autoFocus
-                    maxLength={16}
-                    value={nameDraft}
-                    onChange={(e) => setNameDraft(e.target.value)}
-                    onBlur={commitName}
-                    className="bg-white border-2 border-emerald-500 rounded-lg px-2 py-0.5 text-sm font-bold text-slate-900 w-32 outline-none text-left"
-                  />
-                </form>
-              ) : (
-                <button
-                  onClick={() => {
-                    setNameDraft(profile.username);
-                    setEditingName(true);
-                  }}
-                  title="Click to edit username"
-                  className="inline-flex items-center justify-start gap-1.5 font-display text-slate-900 text-base sm:text-lg hover:text-emerald-600 transition-colors truncate max-w-[220px] cursor-pointer"
-                >
-                  {profile.isMod && (
-                    <span className="px-1.5 py-0.5 rounded-md bg-amber-400 text-slate-950 font-sans text-[10px] font-black tracking-wide shrink-0">
-                      MOD
-                    </span>
-                  )}
-                  <span className="truncate">
-                    {profile.username}
-                    {profile.clanName ? (
-                      <span className="text-emerald-600 ml-1">({profile.clanName})</span>
-                    ) : null}
-                  </span>
-                  <Pencil className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                </button>
-              )}
-              <div className="flex items-center justify-start gap-2 text-xs text-slate-600 tabular-nums mt-0.5 font-bold">
-                <span className="text-emerald-600">Lv.{profile.level}</span>
-                <span className="text-slate-300">·</span>
-                <span className="text-sky-600">{profile.xp} XP</span>
-                <span className="text-slate-300">·</span>
-                <span className="inline-flex items-center gap-1 text-amber-600">
-                  <Coins className="w-3.5 h-3.5 text-amber-500" />
-                  {profile.coins}
-                </span>
-              </div>
-            </div>
-          </div>
+      <div className="relative flex-1 flex flex-col md:flex-row items-stretch justify-between gap-4">
+        {/* LEFT SIDE (Desktop Account Card + Vibrant Arcade Dock) */}
+        <div className="order-2 md:order-1 flex flex-col justify-start items-stretch md:items-start gap-3 z-20">
+          <div className="hidden md:block">{ProfileCard}</div>
 
-          <div className="pointer-events-auto flex flex-col gap-2.5 w-48 sm:w-52">
+          <div className="pointer-events-auto grid grid-cols-2 md:flex md:flex-col gap-2 sm:gap-2.5 w-full md:w-52">
             <button
               onClick={() => onOpenTab('guns')}
-              className="arcade-btn arcade-btn-blue rounded-2xl px-4 py-2.5 flex items-center gap-3 text-left cursor-pointer whitespace-nowrap"
+              className="arcade-btn arcade-btn-blue rounded-2xl px-3 sm:px-4 py-2 sm:py-2.5 flex items-center gap-2.5 sm:gap-3 text-left cursor-pointer whitespace-nowrap"
             >
-              <div className="w-9 h-9 rounded-xl bg-white/25 border border-white/40 flex items-center justify-center shrink-0">
-                <Crosshair className="w-5 h-5 text-white drop-shadow" />
+              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-white/25 border border-white/40 flex items-center justify-center shrink-0">
+                <Crosshair className="w-4 h-4 sm:w-5 sm:h-5 text-white drop-shadow" />
               </div>
-              <span className="font-display text-xl tracking-wide text-white arcade-text-shadow">
+              <span className="font-display text-base sm:text-xl tracking-wide text-white arcade-text-shadow">
                 GUNS
               </span>
             </button>
 
             <button
               onClick={() => onOpenTab('clans')}
-              className="arcade-btn arcade-btn-green rounded-2xl px-4 py-2.5 flex items-center gap-3 text-left cursor-pointer whitespace-nowrap"
+              className="arcade-btn arcade-btn-green rounded-2xl px-3 sm:px-4 py-2 sm:py-2.5 flex items-center gap-2.5 sm:gap-3 text-left cursor-pointer whitespace-nowrap"
             >
-              <div className="w-9 h-9 rounded-xl bg-white/25 border border-white/40 flex items-center justify-center shrink-0">
-                <Shield className="w-5 h-5 text-white drop-shadow" />
+              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-white/25 border border-white/40 flex items-center justify-center shrink-0">
+                <Shield className="w-4 h-4 sm:w-5 sm:h-5 text-white drop-shadow" />
               </div>
-              <span className="font-display text-xl tracking-wide text-white arcade-text-shadow">
+              <span className="font-display text-base sm:text-xl tracking-wide text-white arcade-text-shadow">
                 CLANS
               </span>
             </button>
 
             <button
               onClick={() => onOpenTab('skins')}
-              className="arcade-btn arcade-btn-amber rounded-2xl px-4 py-2.5 flex items-center gap-3 text-left cursor-pointer whitespace-nowrap"
+              className="arcade-btn arcade-btn-amber rounded-2xl px-3 sm:px-4 py-2 sm:py-2.5 flex items-center gap-2.5 sm:gap-3 text-left cursor-pointer whitespace-nowrap"
             >
-              <div className="w-9 h-9 rounded-xl bg-white/25 border border-white/40 flex items-center justify-center shrink-0">
-                <Sparkles className="w-5 h-5 text-white drop-shadow" />
+              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-white/25 border border-white/40 flex items-center justify-center shrink-0">
+                <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-white drop-shadow" />
               </div>
-              <span className="font-display text-xl tracking-wide text-white arcade-text-shadow">
+              <span className="font-display text-base sm:text-xl tracking-wide text-white arcade-text-shadow">
                 SKINS
               </span>
             </button>
 
             <button
               onClick={() => onOpenTab('leaderboard')}
-              className="arcade-btn arcade-btn-purple rounded-2xl px-4 py-2.5 flex items-center gap-3 text-left cursor-pointer whitespace-nowrap"
+              className="arcade-btn arcade-btn-purple rounded-2xl px-3 sm:px-4 py-2 sm:py-2.5 flex items-center gap-2.5 sm:gap-3 text-left cursor-pointer whitespace-nowrap"
             >
-              <div className="w-9 h-9 rounded-xl bg-white/25 border border-white/40 flex items-center justify-center shrink-0">
-                <Trophy className="w-5 h-5 text-white drop-shadow" />
+              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-white/25 border border-white/40 flex items-center justify-center shrink-0">
+                <Trophy className="w-4 h-4 sm:w-5 sm:h-5 text-white drop-shadow" />
               </div>
-              <span className="font-display text-xl tracking-wide text-white arcade-text-shadow">
+              <span className="font-display text-base sm:text-xl tracking-wide text-white arcade-text-shadow">
                 RANK
               </span>
             </button>
 
-            {/* Bright Secondary Utility Grid (ABOUT US, RULES, CREDITS, MOD) */}
-            <div className="grid grid-cols-2 gap-2 pt-1">
+            {/* Secondary Utility Buttons (ABOUT US, RULES, CREDITS, MOD) */}
+            <div className="col-span-2 grid grid-cols-4 md:grid-cols-2 gap-2 pt-0.5">
               <button
                 onClick={() => onOpenTab('about')}
                 title="About VoxelStrike"
-                className="arcade-btn arcade-btn-light rounded-xl py-2 px-1 flex flex-col items-center justify-center gap-0.5 text-[11px] font-display tracking-wide text-slate-800 cursor-pointer whitespace-nowrap"
+                className="arcade-btn arcade-btn-light rounded-xl py-2 px-1 flex flex-col items-center justify-center gap-0.5 text-[10px] sm:text-[11px] font-display tracking-wide text-slate-800 cursor-pointer whitespace-nowrap"
               >
                 <Info className="w-4 h-4 text-sky-600" />
                 ABOUT US
@@ -255,7 +287,7 @@ export const HomeMenu: React.FC<HomeMenuProps> = ({
               <button
                 onClick={() => onOpenTab('rules')}
                 title="Server Rules"
-                className="arcade-btn arcade-btn-light rounded-xl py-2 px-1 flex flex-col items-center justify-center gap-0.5 text-[11px] font-display tracking-wide text-slate-800 cursor-pointer whitespace-nowrap"
+                className="arcade-btn arcade-btn-light rounded-xl py-2 px-1 flex flex-col items-center justify-center gap-0.5 text-[10px] sm:text-[11px] font-display tracking-wide text-slate-800 cursor-pointer whitespace-nowrap"
               >
                 <BookOpen className="w-4 h-4 text-emerald-600" />
                 RULES
@@ -263,7 +295,7 @@ export const HomeMenu: React.FC<HomeMenuProps> = ({
               <button
                 onClick={() => onOpenTab('credits')}
                 title="Credits"
-                className="arcade-btn arcade-btn-light rounded-xl py-2 px-1 flex flex-col items-center justify-center gap-0.5 text-[11px] font-display tracking-wide text-slate-800 cursor-pointer whitespace-nowrap"
+                className="arcade-btn arcade-btn-light rounded-xl py-2 px-1 flex flex-col items-center justify-center gap-0.5 text-[10px] sm:text-[11px] font-display tracking-wide text-slate-800 cursor-pointer whitespace-nowrap"
               >
                 <Award className="w-4 h-4 text-purple-600" />
                 CREDITS
@@ -271,7 +303,7 @@ export const HomeMenu: React.FC<HomeMenuProps> = ({
               <button
                 onClick={() => onOpenTab('moderation')}
                 title="Moderation"
-                className="arcade-btn arcade-btn-light rounded-xl py-2 px-1 flex flex-col items-center justify-center gap-0.5 text-[11px] font-display tracking-wide text-slate-800 cursor-pointer whitespace-nowrap"
+                className="arcade-btn arcade-btn-light rounded-xl py-2 px-1 flex flex-col items-center justify-center gap-0.5 text-[10px] sm:text-[11px] font-display tracking-wide text-slate-800 cursor-pointer whitespace-nowrap"
               >
                 <ShieldAlert className="w-4 h-4 text-rose-500" />
                 MOD
@@ -280,14 +312,14 @@ export const HomeMenu: React.FC<HomeMenuProps> = ({
           </div>
         </div>
 
-        {/* CENTER STAGE: Bold Lilita One VoxelStrike Logo + PLAY GAME Button */}
-        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-4">
-          <div className="flex flex-col items-center gap-6">
+        {/* CENTER STAGE: Bold VoxelStrike Logo + PLAY GAME + 1v1 FIGHT / CAP FLAG / CLAN WAR */}
+        <div className="order-1 md:order-2 md:absolute md:inset-0 flex flex-col items-center justify-center pointer-events-none py-3 md:py-0 px-1 sm:px-4">
+          <div className="flex flex-col items-center gap-4 sm:gap-5 max-w-xl w-full">
             <div className="flex flex-col items-center text-center">
               <h1
-                className="font-display text-6xl sm:text-7xl md:text-8xl tracking-wider text-white leading-none"
+                className="font-display text-5xl sm:text-7xl md:text-8xl tracking-wider text-white leading-none"
                 style={{
-                  WebkitTextStroke: '3px #14532d',
+                  WebkitTextStroke: '2.5px #14532d',
                   textShadow: '0 6px 0 #15803d, 0 12px 24px rgba(0,0,0,0.38)',
                 }}
               >
@@ -296,43 +328,60 @@ export const HomeMenu: React.FC<HomeMenuProps> = ({
             </div>
 
             {connectionError && (
-              <div className="pointer-events-auto bg-rose-600 border-2 border-rose-200 rounded-2xl px-4 py-2 text-sm font-bold text-white shadow-lg max-w-md text-center">
+              <div className="pointer-events-auto bg-rose-600 border-2 border-rose-200 rounded-2xl px-4 py-2 text-xs sm:text-sm font-bold text-white shadow-lg max-w-md text-center">
                 {connectionError}
               </div>
             )}
 
             <button
-              onClick={onPlay}
-              className="pointer-events-auto arcade-btn arcade-btn-green rounded-2xl px-12 py-4 text-white font-display text-3xl sm:text-4xl tracking-wider arcade-text-shadow flex items-center gap-3.5 cursor-pointer whitespace-nowrap"
+              onClick={() => onPlayMode('survival')}
+              className="pointer-events-auto arcade-btn arcade-btn-green rounded-2xl px-9 sm:px-12 py-3.5 sm:py-4 text-white font-display text-2xl sm:text-4xl tracking-wider arcade-text-shadow flex items-center gap-3 cursor-pointer whitespace-nowrap"
             >
-              <Play className="w-8 h-8 fill-current" />
+              <Play className="w-6 h-6 sm:w-8 sm:h-8 fill-current" />
               PLAY GAME
             </button>
+
+            {/* Combat Mode Quick Buttons */}
+            <div className="pointer-events-auto flex flex-wrap items-center justify-center gap-2 sm:gap-2.5">
+              <button
+                onClick={() => onPlayMode('duel')}
+                className="arcade-btn arcade-btn-blue rounded-xl px-3.5 sm:px-4 py-2 text-white font-display text-sm sm:text-base tracking-wide arcade-text-shadow flex items-center gap-2 cursor-pointer whitespace-nowrap"
+              >
+                <Swords className="w-4 h-4" />
+                1v1 FIGHT
+                {duelWaiting > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-md bg-amber-400 text-slate-950 font-sans text-[10px] font-black">
+                    {duelWaiting} Waiting
+                  </span>
+                )}
+              </button>
+
+              <button
+                onClick={() => onPlayMode('ctf')}
+                className="arcade-btn arcade-btn-amber rounded-xl px-3.5 sm:px-4 py-2 text-white font-display text-sm sm:text-base tracking-wide arcade-text-shadow flex items-center gap-2 cursor-pointer whitespace-nowrap"
+              >
+                <Flag className="w-4 h-4" />
+                CAP FLAG
+              </button>
+
+              <button
+                onClick={() => onPlayMode('clanwar')}
+                className="arcade-btn arcade-btn-purple rounded-xl px-3.5 sm:px-4 py-2 text-white font-display text-sm sm:text-base tracking-wide arcade-text-shadow flex items-center gap-2 cursor-pointer whitespace-nowrap"
+              >
+                <Shield className="w-4 h-4" />
+                CLAN WAR
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* RIGHT SIDE: Top Audio/Settings + YouTubers, Bottom-Right Discord Server */}
-        <div className="flex flex-col justify-between items-end gap-3 z-20 ml-auto">
-          <div className="flex flex-col items-end gap-3">
-            <div className="pointer-events-auto flex items-center gap-2">
-              <button
-                onClick={onToggleMute}
-                title={muted ? 'Unmute Audio' : 'Mute Audio'}
-                className="arcade-btn arcade-btn-light w-11 h-11 rounded-xl flex items-center justify-center text-slate-800 cursor-pointer"
-              >
-                {muted ? <VolumeX className="w-5 h-5 text-rose-500" /> : <Volume2 className="w-5 h-5 text-emerald-600" />}
-              </button>
-              <button
-                onClick={() => onOpenTab('settings')}
-                title="Settings & Keyboard Controls"
-                className="arcade-btn arcade-btn-light w-11 h-11 rounded-xl flex items-center justify-center text-slate-800 cursor-pointer"
-              >
-                <Settings className="w-5 h-5 text-slate-700" />
-              </button>
-            </div>
+        {/* RIGHT SIDE: Desktop Audio/Settings + YouTubers + Bottom-Right Discord Server */}
+        <div className="order-3 flex flex-col justify-between items-stretch md:items-end gap-3 z-20 md:ml-auto pb-2 md:pb-0">
+          <div className="flex flex-col items-stretch md:items-end gap-3">
+            <div className="hidden md:block">{AudioSettingsButtons}</div>
 
-            {/* Right Side Top: Bright YouTubers Panel with Official Logo */}
-            <div className="pointer-events-auto game-card-bright rounded-2xl p-3 w-64 sm:w-72 flex flex-col gap-2">
+            {/* YouTubers Panel */}
+            <div className="pointer-events-auto game-card-bright rounded-2xl p-3 w-full md:w-72 flex flex-col gap-2">
               <div className="flex items-center gap-2 px-1">
                 {!youtubeImgFailed ? (
                   <img
@@ -350,58 +399,60 @@ export const HomeMenu: React.FC<HomeMenuProps> = ({
                 </span>
               </div>
 
-              {YOUTUBERS.map((yt) => (
-                <a
-                  key={yt.url}
-                  href={yt.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="rounded-xl bg-rose-50 hover:bg-rose-100 border-2 border-rose-200 hover:border-rose-400 px-3 py-2 flex items-center justify-between gap-2.5 transition-all group"
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-9 h-9 rounded-lg bg-white border border-rose-200 flex items-center justify-center shrink-0 shadow-xs overflow-hidden p-1">
-                      {!youtubeImgFailed ? (
-                        <img
-                          src={YOUTUBE_LOGO_URL}
-                          alt="YouTube"
-                          referrerPolicy="no-referrer"
-                          onError={() => setYoutubeImgFailed(true)}
-                          className="w-full h-full object-contain"
-                        />
-                      ) : (
-                        <YoutubeFallbackIcon className="w-6 h-4" />
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="font-display text-sm text-slate-900 truncate">
-                        {yt.name}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-1 gap-2">
+                {YOUTUBERS.map((yt) => (
+                  <a
+                    key={yt.url}
+                    href={yt.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-xl bg-rose-50 hover:bg-rose-100 border-2 border-rose-200 hover:border-rose-400 px-3 py-2 flex items-center justify-between gap-2.5 transition-all group"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-white border border-rose-200 flex items-center justify-center shrink-0 shadow-xs overflow-hidden p-1">
+                        {!youtubeImgFailed ? (
+                          <img
+                            src={YOUTUBE_LOGO_URL}
+                            alt="YouTube"
+                            referrerPolicy="no-referrer"
+                            onError={() => setYoutubeImgFailed(true)}
+                            className="w-full h-full object-contain"
+                          />
+                        ) : (
+                          <YoutubeFallbackIcon className="w-6 h-4" />
+                        )}
                       </div>
-                      <div className="text-[11px] font-bold text-rose-600">
-                        Watch Channel
+                      <div className="min-w-0">
+                        <div className="font-display text-sm text-slate-900 truncate">
+                          {yt.name}
+                        </div>
+                        <div className="text-[11px] font-bold text-rose-600">
+                          Watch Channel
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <ExternalLink className="w-4 h-4 text-rose-400 group-hover:text-rose-600 shrink-0 transition-colors" />
-                </a>
-              ))}
+                    <ExternalLink className="w-4 h-4 text-rose-400 group-hover:text-rose-600 shrink-0 transition-colors" />
+                  </a>
+                ))}
+              </div>
             </div>
           </div>
 
-          {/* BOTTOM-RIGHT: Bright Discord Server Card */}
+          {/* BOTTOM-RIGHT: Discord Server Card */}
           <a
             href={DISCORD_INVITE_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="pointer-events-auto arcade-btn arcade-btn-indigo rounded-2xl px-3.5 py-2.5 flex items-center gap-3 group max-w-[260px]"
+            className="pointer-events-auto arcade-btn arcade-btn-indigo rounded-2xl px-3.5 py-2.5 flex items-center gap-3 group w-full md:w-auto md:max-w-[260px]"
           >
-            <div className="w-11 h-11 rounded-xl bg-white flex items-center justify-center shrink-0 overflow-hidden shadow-sm">
+            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-white flex items-center justify-center shrink-0 overflow-hidden shadow-sm">
               {!discordImgFailed ? (
                 <img
                   src={DISCORD_ICON_URL}
                   alt="Discord"
                   referrerPolicy="no-referrer"
                   onError={() => setDiscordImgFailed(true)}
-                  className="w-9 h-9 object-contain"
+                  className="w-8 h-8 sm:w-9 sm:h-9 object-contain"
                 />
               ) : (
                 <svg width="26" height="20" viewBox="0 0 24 18" fill="none" aria-hidden="true">

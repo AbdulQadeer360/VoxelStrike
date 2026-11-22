@@ -627,7 +627,7 @@ export function getModeBounds(mode: GameModeId): {
   minZ: number;
   maxZ: number;
 } {
-  if (mode === 'duel') return { minX: -28, maxX: 28, minZ: -18, maxZ: 18 };
+  if (mode === 'duel') return { minX: -50, maxX: 49, minZ: -50, maxZ: 49 };
   if (mode === 'ctf') return { minX: -62, maxX: 62, minZ: -34, maxZ: 34 };
   if (mode === 'clanwar') return { minX: -48, maxX: 48, minZ: -30, maxZ: 30 };
   return { minX: WORLD_MIN_X, maxX: WORLD_MAX_X, minZ: WORLD_MIN_Z, maxZ: WORLD_MAX_Z };
@@ -640,7 +640,7 @@ export function isInsideModeWorld(mode: GameModeId, wx: number, wy: number, wz: 
 
 export function getModeSpawn(mode: GameModeId, team: 'red' | 'blue' = 'red'): { x: number; y: number; z: number } {
   if (mode === 'duel') {
-    return team === 'red' ? { x: -23, y: 23, z: 0 } : { x: 23, y: 23, z: 0 };
+    return team === 'red' ? { x: -42, y: 23, z: 0 } : { x: 42, y: 23, z: 0 };
   }
   if (mode === 'ctf') {
     return team === 'red' ? { x: -53, y: 23, z: 0 } : { x: 53, y: 23, z: 0 };
@@ -673,67 +673,86 @@ function generateDuelChunkData(cx: number, cz: number): Uint8Array {
       const absZ = Math.abs(wz);
       const isBorder = wx === minX || wx === maxX || wz === minZ || wz === maxZ;
 
-      // Arena floor pattern
+      // 100x100 Plain Battleground Floor
       data[localIndex(lx, floorY, lz)] =
-        absZ <= 2 ? BlockId.PLANKS : (Math.abs(wx + wz) % 3 === 0 ? BlockId.BRICK : BlockId.STONE);
+        absZ <= 2 || absX <= 2
+          ? BlockId.STONE
+          : Math.abs(wx + wz) % 6 === 0
+            ? BlockId.BRICK
+            : BlockId.GRASS;
 
+      // Perimeter Fortress Walls
       if (isBorder) {
-        const wallH = (wx + wz) % 2 === 0 ? 8 : 7;
+        const wallH = (wx + wz) % 2 === 0 ? 9 : 8;
         for (let wy = floorY + 1; wy <= floorY + wallH; wy++) {
           data[localIndex(lx, wy, lz)] = wy === floorY + wallH ? BlockId.STONE : BlockId.BRICK;
         }
         continue;
       }
 
-      // Spawn cover shields (protect spawn sides while allowing fast push)
-      if (absX === 19 && absZ >= 2 && absZ <= 5) {
+      // Spawn Defensive Barriers (at x = ±36)
+      if (absX === 36 && absZ <= 6 && absZ >= 2) {
         for (let wy = floorY + 1; wy <= floorY + 3; wy++) {
           data[localIndex(lx, wy, lz)] = BlockId.STONE_WALL;
         }
       }
 
-      // Twin tactical fight walls in mid-outer lanes
-      if (absX === 11 && absZ >= 3 && absZ <= 8) {
+      // Outer Fight Walls & Peek Windows (at x = ±24, z = ±5..14)
+      if (absX === 24 && absZ >= 4 && absZ <= 14) {
         for (let wy = floorY + 1; wy <= floorY + 3; wy++) {
-          if (wy === floorY + 2 && absZ === 5) continue; // Peek window
+          if (wy === floorY + 2 && (absZ === 7 || absZ === 11)) continue;
           data[localIndex(lx, wy, lz)] = absZ % 2 === 0 ? BlockId.BRICK : BlockId.STONE_WALL;
         }
       }
 
-      // Low waist-high quick fight cover near center lanes
-      if (absX === 6 && absZ >= 5 && absZ <= 9) {
-        data[localIndex(lx, floorY + 1, lz)] = BlockId.WOOD_WALL;
-        data[localIndex(lx, floorY + 2, lz)] = BlockId.PLANKS;
+      // Midfield Barriers (at x = ±14, z = ±2..10 & x = ±8, z = ±16..24)
+      if (absX === 14 && absZ >= 2 && absZ <= 10) {
+        for (let wy = floorY + 1; wy <= floorY + 2; wy++) {
+          data[localIndex(lx, wy, lz)] = wy === floorY + 2 ? BlockId.PLANKS : BlockId.WOOD_WALL;
+        }
+      }
+      if (absX === 8 && absZ >= 16 && absZ <= 24) {
+        for (let wy = floorY + 1; wy <= floorY + 3; wy++) {
+          data[localIndex(lx, wy, lz)] = BlockId.BRICK;
+        }
       }
 
-      // Center tactical platform + battlements
-      if (absX <= 3 && absZ <= 3) {
+      // Twin North & South Sniper Towers (x = ±18, z = ±30)
+      for (const tx of [-18, 18]) {
+        for (const tz of [-30, 30]) {
+          const dx = wx - tx;
+          const dz = wz - tz;
+          if (Math.abs(dx) <= 2 && Math.abs(dz) <= 2) {
+            const onEdge = Math.abs(dx) === 2 || Math.abs(dz) === 2;
+            const door = dx === 0 && dz === (tz > 0 ? -2 : 2);
+            if (onEdge && !door) {
+              for (let wy = floorY + 1; wy <= floorY + 7; wy++) {
+                data[localIndex(lx, wy, lz)] = wy === floorY + 7 ? BlockId.STONE_WALL : BlockId.BRICK;
+              }
+            }
+            data[localIndex(lx, floorY + 6, lz)] = BlockId.PLANKS;
+            if (dx === 0 && dz === 0) {
+              for (let wy = floorY + 1; wy <= floorY + 5; wy++) {
+                data[localIndex(lx, wy, lz)] = wy % 2 === 0 ? BlockId.STONE_STAIRS : BlockId.BRICK;
+              }
+            }
+          }
+          // Access Stairs to Tower
+          if (dx === 0 && dz === (tz > 0 ? -3 : 3)) {
+            data[localIndex(lx, floorY + 1, lz)] = BlockId.STONE_STAIRS;
+          }
+        }
+      }
+
+      // Center Citadel Combat Platform + Barriers
+      if (absX <= 4 && absZ <= 4) {
         data[localIndex(lx, floorY + 1, lz)] = BlockId.BRICK;
-        if ((absX === 3 && absZ <= 1) || (absZ === 3 && absX <= 1)) {
+        if ((absX === 4 && absZ <= 1) || (absZ === 4 && absX <= 1)) {
           data[localIndex(lx, floorY + 1, lz)] = BlockId.STONE_STAIRS;
         }
-        if (absX === 2 && absZ === 2) {
+        if (absX === 3 && absZ === 3) {
           data[localIndex(lx, floorY + 2, lz)] = BlockId.STONE_WALL;
           data[localIndex(lx, floorY + 3, lz)] = BlockId.CRYSTAL_ORE;
-        }
-      }
-
-      // North & South elevated flank catwalks (good for peeking & sniping)
-      if (absZ >= 12 && absZ <= 15 && absX <= 13) {
-        data[localIndex(lx, floorY + 3, lz)] = BlockId.PLANKS;
-        if (absZ === 12 && absX % 3 !== 0) {
-          data[localIndex(lx, floorY + 4, lz)] = BlockId.WOOD_WALL;
-        }
-        if (absX === 13 && absZ === 14) {
-          // Pillar support
-          data[localIndex(lx, floorY + 1, lz)] = BlockId.WOOD;
-          data[localIndex(lx, floorY + 2, lz)] = BlockId.WOOD;
-        }
-      }
-      if (absZ === 14 && (absX === 14 || absX === 15)) {
-        const stepH = absX === 15 ? 1 : 2;
-        for (let wy = floorY + 1; wy <= floorY + stepH; wy++) {
-          data[localIndex(lx, wy, lz)] = wy === floorY + stepH ? BlockId.WOOD_STAIRS : BlockId.PLANKS;
         }
       }
     }

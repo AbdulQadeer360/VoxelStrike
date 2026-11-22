@@ -116,7 +116,8 @@ export const GUN_LIST: GunDef[] = [GUNS.rifle, GUNS.smg, GUNS.shotgun, GUNS.snip
 
 export type GameModeId = 'survival' | 'duel' | 'ctf' | 'clanwar';
 
-export const DUEL_KILLS_TO_WIN = 3;
+export const DUEL_KILLS_TO_WIN = 1;
+export const DUEL_DURATION_MS = 5 * 60 * 1000;
 export const DUEL_WIN_XP = 120;
 export const DUEL_WIN_COINS = 50;
 export const DUEL_LOSS_XP = 35;
